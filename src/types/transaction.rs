@@ -1,4 +1,6 @@
 use crate::prelude::*;
+use serde::de::{self, Visitor};
+use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -7,11 +9,151 @@ pub struct AccessListEntry {
     pub storage_keys: Vec<H256>,
 }
 
+#[derive(PartialEq, Debug, Copy, Clone, Default)]
+pub struct LegacyType;
+impl LegacyType {
+    const TAG: &'static str = "0x00";
+}
+
+impl Serialize for LegacyType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(LegacyType::TAG)
+    }
+}
+
+struct LegacyTypeVisitor;
+impl<'de> Visitor<'de> for LegacyTypeVisitor {
+    type Value = LegacyType;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "expected the tag type {}", LegacyType::TAG)
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if value != LegacyType::TAG {
+            Err(de::Error::custom(format!("expected `{}`", LegacyType::TAG)))
+        } else {
+            Ok(LegacyType)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for LegacyType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(LegacyTypeVisitor)
+    }
+}
+
+#[derive(PartialEq, Debug, Copy, Clone, Default)]
+pub struct EIP2930Type;
+impl EIP2930Type {
+    const TAG: &'static str = "0x01";
+}
+
+impl Serialize for EIP2930Type {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(EIP2930Type::TAG)
+    }
+}
+
+struct EIP2930TypeVisitor;
+impl<'de> Visitor<'de> for EIP2930TypeVisitor {
+    type Value = EIP2930Type;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "expected the tag type {}", EIP2930Type::TAG)
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if value != EIP2930Type::TAG {
+            Err(de::Error::custom(format!(
+                "expected `{}`",
+                EIP2930Type::TAG
+            )))
+        } else {
+            Ok(EIP2930Type)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for EIP2930Type {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(EIP2930TypeVisitor)
+    }
+}
+
+#[derive(PartialEq, Debug, Copy, Clone, Default)]
+pub struct EIP1559Type;
+impl EIP1559Type {
+    const TAG: &'static str = "0x02";
+}
+
+impl Serialize for EIP1559Type {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(EIP1559Type::TAG)
+    }
+}
+
+struct EIP1559TypeVisitor;
+impl<'de> Visitor<'de> for EIP1559TypeVisitor {
+    type Value = EIP1559Type;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "expected the tag type {}", EIP2930Type::TAG)
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if value != EIP1559Type::TAG {
+            Err(de::Error::custom(format!(
+                "expected `{}`",
+                EIP1559Type::TAG
+            )))
+        } else {
+            Ok(EIP1559Type)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for EIP1559Type {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(EIP1559TypeVisitor)
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum MessageCall {
     #[serde(rename_all = "camelCase")]
     Legacy {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tag: Option<LegacyType>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from: Option<Address>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -27,6 +169,8 @@ pub enum MessageCall {
     },
     #[serde(rename_all = "camelCase")]
     EIP2930 {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tag: Option<EIP2930Type>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from: Option<Address>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -44,6 +188,8 @@ pub enum MessageCall {
     },
     #[serde(rename_all = "camelCase")]
     EIP1559 {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tag: Option<EIP1559Type>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from: Option<Address>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -144,6 +290,7 @@ mod tests {
     #[test]
     fn test_ser_de_hexbytes_option() {
         let call_data = MessageCall::Legacy {
+            tag: None,
             from: None,
             to: Some(Address::from([0; 20])),
             gas: None,
@@ -161,6 +308,7 @@ mod tests {
         );
 
         let call_data_with_data = MessageCall::Legacy {
+            tag: None,
             from: None,
             to: Some(Address::from([0; 20])),
             gas: None,
@@ -180,6 +328,29 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<MessageCall>(hexstring_with_data).unwrap(),
             call_data_with_data
+        );
+    }
+
+    #[test]
+    fn test_deserialize_with_tag() {
+        let call_data = MessageCall::Legacy {
+            tag: Some(LegacyType),
+            from: None,
+            to: Some(Address::from([0; 20])),
+            gas: None,
+            gas_price: None,
+            value: None,
+            data: None,
+        };
+
+        let hexstring = json!({
+            "tag": "0x00",
+            "to":"0x0000000000000000000000000000000000000000",
+        });
+
+        assert_eq!(
+            serde_json::from_value::<MessageCall>(hexstring).unwrap(),
+            call_data,
         );
     }
 
