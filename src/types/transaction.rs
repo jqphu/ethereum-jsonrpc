@@ -1,6 +1,7 @@
 use crate::prelude::*;
 use serde::de::{self, Visitor};
 use std::fmt;
+use std::marker::PhantomData;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -11,45 +12,62 @@ pub struct AccessListEntry {
 
 #[derive(PartialEq, Debug, Copy, Clone, Default)]
 pub struct LegacyType;
-impl LegacyType {
+impl MessageCallTag for LegacyType {
     const TAG: &'static str = "0x00";
 }
 
-impl Serialize for LegacyType {
+trait MessageCallTag {
+    const TAG: &'static str;
+}
+
+#[derive(PartialEq, Debug, Copy, Clone, Default)]
+pub struct TagWrapper<T>(T);
+
+impl<T> Serialize for TagWrapper<T>
+where
+    T: MessageCallTag,
+{
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(LegacyType::TAG)
+        serializer.serialize_str(T::TAG)
     }
 }
 
-struct LegacyTypeVisitor;
-impl<'de> Visitor<'de> for LegacyTypeVisitor {
-    type Value = LegacyType;
+#[derive(Default)]
+struct MessageTagVisitor<T>(PhantomData<T>);
+impl<'de, T> Visitor<'de> for MessageTagVisitor<T>
+where
+    T: MessageCallTag + Default,
+{
+    type Value = TagWrapper<T>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "expected the tag type {}", LegacyType::TAG)
+        write!(formatter, "expected the tag type {}", T::TAG)
     }
 
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
-        if value != LegacyType::TAG {
-            Err(de::Error::custom(format!("expected `{}`", LegacyType::TAG)))
+        if value != T::TAG {
+            Err(de::Error::custom(format!("expected `{}`", T::TAG)))
         } else {
-            Ok(LegacyType)
+            Ok(TagWrapper::<T>::default())
         }
     }
 }
 
-impl<'de> Deserialize<'de> for LegacyType {
+impl<'de, T> Deserialize<'de> for TagWrapper<T>
+where
+    T: MessageCallTag + Default,
+{
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_str(LegacyTypeVisitor)
+        deserializer.deserialize_str(MessageTagVisitor::<T>::default())
     }
 }
 
@@ -153,7 +171,7 @@ pub enum MessageCall {
     #[serde(rename_all = "camelCase")]
     Legacy {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        tag: Option<LegacyType>,
+        tag: Option<TagWrapper<LegacyType>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from: Option<Address>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -334,7 +352,7 @@ mod tests {
     #[test]
     fn test_deserialize_with_tag() {
         let call_data = MessageCall::Legacy {
-            tag: Some(LegacyType),
+            tag: Some(TagWrapper(LegacyType)),
             from: None,
             to: Some(Address::from([0; 20])),
             gas: None,
